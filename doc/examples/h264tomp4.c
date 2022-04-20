@@ -14,15 +14,21 @@ static void formattime(char *formated_time, uint64_t time, int decimals, enum AV
     int fractions = time % AV_TIME_BASE;
     int minutes = seconds / 60;
     int hours = minutes / 60;
+	int len = 0;
+
+	char *l_formated_time = formated_time;
     fractions = av_rescale_rnd(fractions, pow(10, decimals), AV_TIME_BASE, round);
     seconds %= 60;
     minutes %= 60;
-    sprintf(formated_time, "PT");
+
     if (hours)
-        sprintf(formated_time, "%dH", hours);
-    if (hours || minutes)
-        sprintf(formated_time, "%dM", minutes);
-    sprintf(formated_time, "%d.%0*dS", seconds, decimals, fractions);
+        len = sprintf(l_formated_time, "%dH ", hours);
+    if (hours || minutes) {
+		l_formated_time = l_formated_time + len;
+        sprintf(l_formated_time, "%dM ", minutes);
+	}
+	l_formated_time = l_formated_time + len;
+    sprintf(l_formated_time, "%d.%0*dS", seconds, decimals, fractions);
 }
 
 static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
@@ -78,10 +84,6 @@ static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 		return -1;
 	}
 
-	// char format_time[32];
-	// formattime(format_time, timestamp, 1, AV_ROUND_DOWN);
-	// printf("read time stamp : %s\n", format_time);
-
 	//Write PTS
 	//Parameters
 	if (last_timestamp == 0) {
@@ -96,6 +98,7 @@ static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 		pkt->duration = timestamp - last_timestamp;
 	}
 	last_timestamp = timestamp;
+	pkt->pos = -1;
 	pkt->time_base = (AVRational){1, AV_TIME_BASE};
 
 	return 0;
@@ -131,12 +134,12 @@ int main(int argc, char **argv)
 	const char *index_filename;
 	FILE *index_file = NULL;
  
-	in_filename  = "./stream_with_pts.h264";
+	in_filename  = "./0420/stream_with_pts.h264";
 	// in_filename  = "./stream_without_pts.h264";
  	// in_filename  = "./rec.h264";
 	// in_filename  = "./timestemp.h264";
 
-	index_filename = "./stream_with_pts_only.h264";
+	index_filename = "./0420/stream_only_pts.h264";
 	if ((index_file = open_index(index_filename)) == NULL) {
 		printf("Could not open index file : %s.\n", index_filename); 
 	}
@@ -144,7 +147,7 @@ int main(int argc, char **argv)
 	char cTime[128];
 	char out_filename[128];
 	sprintf(cTime,"%s", "stream_without_pts");
-	sprintf(out_filename,"./%s.mp4",cTime);
+	sprintf(out_filename,"./0420/%s.mp4",cTime);
  
 	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
 		printf("Could not open input file : %s.\n", out_filename); 
@@ -203,6 +206,8 @@ int main(int argc, char **argv)
             goto end;
         }
 		out_stream->codecpar->codec_tag = 0;
+
+		out_stream->time_base = (AVRational){1, AV_TIME_BASE};
 	}
  
 	if (!(ofmt->flags & AVFMT_NOFILE)) {
@@ -246,26 +251,22 @@ int main(int argc, char **argv)
 				//Duration between 2 frames (us)
 				int64_t calc_duration=(double)AV_TIME_BASE/av_q2d(in_stream->r_frame_rate);
 
-				// printf("timebase1.n:%d, timebase1.den:%d\n",time_base1.num,time_base1.den);
 				//Parameters
 				pkt.pts=(double)(m_frame_index*calc_duration)/(double)(av_q2d(time_base1)*AV_TIME_BASE);
 				pkt.dts=pkt.pts;
 				pkt.duration=(double)calc_duration/(double)(av_q2d(time_base1)*AV_TIME_BASE);
 
-
-				// printf("pts : %d, duration : %d, timestamp : %d\n", pkt.pts, pkt.duration, pkt.pts*AV_TIME_BASE);
+				/* copy packet */
+				pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, (enum AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+				pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, (enum AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+				pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
+				pkt.pos = -1;
 			}
 			else {
 				setTimeStamp(&pkt, index_file, 1);
 			}
 		}
- 
-		/* copy packet */
-		pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, (enum AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-		pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, (enum AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-		pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
-		pkt.pos = -1;
- 
+  
 		ret = av_interleaved_write_frame(ofmt_ctx, &pkt);
 		if (ret < 0) {
 			break;
@@ -273,14 +274,15 @@ int main(int argc, char **argv)
 		av_packet_unref(&pkt);
 		m_frame_index++;
 	}
- 
+
 	av_write_trailer(ofmt_ctx);
 
-	printf("total frames : %d\n", m_frame_index);
-
-	printf("==========Output Information==========\n");
-	av_dump_format(ofmt_ctx, 0, out_filename, 1);
-	printf("======================================\n");
+	char format_time[32];
+	
+	printf("\n");
+	formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
+	printf("total frames : %d, duration : %s, frame rate : %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
+	printf("\n");
 
 end:
 	avformat_close_input(&ifmt_ctx); 
