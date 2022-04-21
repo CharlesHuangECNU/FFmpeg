@@ -2,11 +2,24 @@
 #include "libavformat/avformat.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/bswap.h"
+#include "libavutil/parseutils.h"
 
 #define SEPARATOR 0xFF
 
 uint64_t start_timestamp = 0;
 uint64_t last_timestamp = 0;
+
+static void formatdatetime(char *formated_datetime, uint64_t timestamp)
+{
+    time_t now_time;
+    struct tm tm;
+	
+    now_time  = timestamp / 1000000;
+	tm = *gmtime_r(&now_time, &tm);
+
+	// UTC time format
+	sprintf(formated_datetime, "%4d-%02d-%02dT%02d:%02d:%02d.%6dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(timestamp % 1000000));
+}
 
 static void formattime(char *formated_time, uint64_t time, int decimals, enum AVRounding round)
 {
@@ -280,6 +293,10 @@ int main(int argc, char **argv)
 	char format_time[32];
 	
 	printf("\n");
+	formatdatetime(format_time, start_timestamp);
+ 	printf("start time : %s, ", format_time);
+ 	formatdatetime(format_time, last_timestamp);
+ 	printf("end time : %s\n", format_time);
 	formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
 	printf("total frames : %d, duration : %s, frame rate : %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
 	printf("\n");
