@@ -25,7 +25,7 @@ static void formattime(char *formated_time, uint64_t time, int decimals, enum AV
         len = sprintf(l_formated_time, "%dH ", hours);
     if (hours || minutes) {
 		l_formated_time = l_formated_time + len;
-        sprintf(l_formated_time, "%dM ", minutes);
+        len = sprintf(l_formated_time, "%dM ", minutes);
 	}
 	l_formated_time = l_formated_time + len;
     sprintf(l_formated_time, "%d.%0*dS", seconds, decimals, fractions);
