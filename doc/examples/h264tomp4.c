@@ -6,6 +6,12 @@
 
 #define SEPARATOR 0xFF
 
+struct frameinfo {
+	uint32_t frameid;
+	uint64_t timestamp;
+	char *nextfilename;
+};
+
 uint64_t start_timestamp = 0;
 uint64_t last_timestamp = 0;
 
@@ -46,13 +52,17 @@ static void formattime(char *formated_time, uint64_t time, int decimals, enum AV
 
 static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 {
+	unsigned char separate_char;
+	int len;
+	struct frameinfo frame_info;
+	
 	if (file == NULL) {
 		av_log(NULL,AV_LOG_ERROR,"index file pointer is nulll.");
 		return -1;
 	}
 
-	unsigned char separate_char;
-	int len;
+	frame_info.nextfilename = NULL;
+	
 	len = fread(&separate_char,sizeof(char),1,file);
 	if (len != 1) {
 		av_log(NULL,AV_LOG_ERROR,"end of index file.");
@@ -63,29 +73,27 @@ static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 		return -1;
 	}
 
-	uint32_t frame_id;
-	uint64_t timestamp;
-	len = fread(&frame_id,sizeof(uint32_t),1,file);
+	len = fread(&frame_info.frameid,sizeof(uint32_t),1,file);
 	if (len != 1) {
 		av_log(NULL,AV_LOG_ERROR,"end of index file.");
 		return -1;
 	}
 	if (need_swap) {
-		frame_id = av_bswap32(frame_id);
+		frame_info.frameid = av_bswap32(frame_info.frameid);
 	}
 	
-	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_id);
+	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info.frameid);
 
-	len = fread(&timestamp,sizeof(uint64_t),1,file);
+	len = fread(&frame_info.timestamp,sizeof(uint64_t),1,file);
 	if (len != 1) {
 		av_log(NULL,AV_LOG_ERROR,"end of index file.");
 		return -1;
 	}
 	if (need_swap) {
-		timestamp = av_bswap64(timestamp);
+		frame_info.timestamp = av_bswap64(frame_info.timestamp);
 	}
 
-	av_log(NULL,AV_LOG_DEBUG,"timestamp : %d",frame_id);
+	av_log(NULL,AV_LOG_DEBUG,"timestamp : %d",frame_info.timestamp);
 
 	len = fread(&separate_char,sizeof(char),1,file);
 	if (len != 1) {
@@ -103,14 +111,14 @@ static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 		pkt->pts = 0;
 		pkt->dts=pkt->pts;
 		pkt->duration = 0;
-		start_timestamp = timestamp;
+		start_timestamp = frame_info.timestamp;
 	}
 	else {
-		pkt->pts = timestamp - start_timestamp;
+		pkt->pts = frame_info.timestamp - start_timestamp;
 		pkt->dts=pkt->pts;
-		pkt->duration = timestamp - last_timestamp;
+		pkt->duration = frame_info.timestamp - last_timestamp;
 	}
-	last_timestamp = timestamp;
+	last_timestamp = frame_info.timestamp;
 	pkt->pos = -1;
 	pkt->time_base = (AVRational){1, AV_TIME_BASE};
 
