@@ -6,11 +6,11 @@
 
 #define SEPARATOR 0xFF
 
-struct frameinfo {
+typedef struct FrameInfo {
 	uint32_t frameid;
 	uint64_t timestamp;
 	char *nextfilename;
-};
+} FrameInfo;
 
 uint64_t start_timestamp = 0;
 uint64_t last_timestamp = 0;
@@ -50,60 +50,77 @@ static void formattime(char *formated_time, uint64_t time, int decimals, enum AV
     sprintf(l_formated_time, "%d.%0*dS", seconds, decimals, fractions);
 }
 
+static struct FrameInfo *get_frameinfo_file(FILE *file, struct FrameInfo *frame_info, const int8_t need_swap)
+{
+	unsigned char separate_char;
+	int len;
+
+	if (frame_info == NULL) return NULL;
+
+	if (file == NULL) {
+		av_log(NULL,AV_LOG_ERROR,"index file pointer is nulll.");
+		return NULL;
+	}
+
+	frame_info->nextfilename = NULL;
+
+	len = fread(&separate_char,sizeof(char),1,file);
+	if (len != 1) {
+		av_log(NULL,AV_LOG_ERROR,"end of index file.");
+		return NULL;
+	}
+	if (separate_char != SEPARATOR) {
+		av_log(NULL,AV_LOG_ERROR,"separate char error.");
+		return NULL;
+	}
+
+	len = fread(&frame_info->frameid,sizeof(uint32_t),1,file);
+	if (len != 1) {
+		av_log(NULL,AV_LOG_ERROR,"end of index file.");
+		return NULL;
+	}
+	if (need_swap) {
+		frame_info->frameid = av_bswap32(frame_info->frameid);
+	}
+	
+	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info->frameid);
+
+	len = fread(&frame_info->timestamp,sizeof(uint64_t),1,file);
+	if (len != 1) {
+		av_log(NULL,AV_LOG_ERROR,"end of index file.");
+		return NULL;
+	}
+	if (need_swap) {
+		frame_info->timestamp = av_bswap64(frame_info->timestamp);
+	}
+
+	av_log(NULL,AV_LOG_DEBUG,"timestamp : %ld",frame_info->timestamp);
+
+	len = fread(&separate_char,sizeof(char),1,file);
+	if (len != 1) {
+		av_log(NULL,AV_LOG_ERROR,"end of index file.");
+		return NULL;
+	}
+	if (separate_char != SEPARATOR) {
+		av_log(NULL,AV_LOG_ERROR,"separate char error.");
+		return NULL;
+	}
+
+	return frame_info;
+}
+
 static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
 {
 	unsigned char separate_char;
 	int len;
-	struct frameinfo frame_info;
+	struct FrameInfo frame_info, *f_info;
 	
 	if (file == NULL) {
 		av_log(NULL,AV_LOG_ERROR,"index file pointer is nulll.");
 		return -1;
 	}
 
-	frame_info.nextfilename = NULL;
-	
-	len = fread(&separate_char,sizeof(char),1,file);
-	if (len != 1) {
-		av_log(NULL,AV_LOG_ERROR,"end of index file.");
-		return -1;
-	}
-	if (separate_char != SEPARATOR) {
-		av_log(NULL,AV_LOG_ERROR,"separate char error.");
-		return -1;
-	}
-
-	len = fread(&frame_info.frameid,sizeof(uint32_t),1,file);
-	if (len != 1) {
-		av_log(NULL,AV_LOG_ERROR,"end of index file.");
-		return -1;
-	}
-	if (need_swap) {
-		frame_info.frameid = av_bswap32(frame_info.frameid);
-	}
-	
-	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info.frameid);
-
-	len = fread(&frame_info.timestamp,sizeof(uint64_t),1,file);
-	if (len != 1) {
-		av_log(NULL,AV_LOG_ERROR,"end of index file.");
-		return -1;
-	}
-	if (need_swap) {
-		frame_info.timestamp = av_bswap64(frame_info.timestamp);
-	}
-
-	av_log(NULL,AV_LOG_DEBUG,"timestamp : %d",frame_info.timestamp);
-
-	len = fread(&separate_char,sizeof(char),1,file);
-	if (len != 1) {
-		av_log(NULL,AV_LOG_ERROR,"end of index file.");
-		return -1;
-	}
-	if (separate_char != SEPARATOR) {
-		av_log(NULL,AV_LOG_ERROR,"separate char error.");
-		return -1;
-	}
+	if (get_frameinfo_file(file, &frame_info, need_swap) == NULL) return -1;
 
 	//Write PTS
 	//Parameters
