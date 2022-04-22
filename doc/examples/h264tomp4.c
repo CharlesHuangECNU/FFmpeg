@@ -109,18 +109,69 @@ static struct FrameInfo *get_frameinfo_file(FILE *file, struct FrameInfo *frame_
 	return frame_info;
 }
 
-static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
+static struct FrameInfo *get_frameinfo_buffer(char *buffer, struct FrameInfo *frame_info, const int8_t need_swap)
 {
 	unsigned char separate_char;
 	int len;
+
+	if (frame_info == NULL) return NULL;
+
+	if (buffer == NULL) {
+		av_log(NULL,AV_LOG_ERROR,"buffer is nulll.");
+		return NULL;
+	}
+
+	frame_info->nextfilename = NULL;
+
+	separate_char = *buffer;
+	buffer++;
+	if (separate_char != SEPARATOR) {
+		av_log(NULL,AV_LOG_ERROR,"separate char error.");
+		return NULL;
+	}
+
+	memcpy(&frame_info->frameid, buffer, sizeof(uint32_t));
+	buffer = buffer + sizeof(uint32_t);
+	if (need_swap) {
+		frame_info->frameid = av_bswap32(frame_info->frameid);
+	}
+	
+	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info->frameid);
+
+	memcpy(&frame_info->timestamp, buffer, sizeof(uint64_t));
+	buffer = buffer + sizeof(uint64_t);
+	if (need_swap) {
+		frame_info->timestamp = av_bswap64(frame_info->timestamp);
+	}
+
+	av_log(NULL,AV_LOG_DEBUG,"timestamp : %ld",frame_info->timestamp);
+
+	separate_char = *buffer;
+	buffer++;
+	if (separate_char != SEPARATOR) {
+		av_log(NULL,AV_LOG_ERROR,"separate char error.");
+		return NULL;
+	}
+
+	return frame_info;
+}
+
+static int setTimeStamp(AVPacket *pkt, FILE *file, int8_t need_swap)
+{
 	struct FrameInfo frame_info, *f_info;
+	char buffer[128];
 	
 	if (file == NULL) {
 		av_log(NULL,AV_LOG_ERROR,"index file pointer is nulll.");
 		return -1;
 	}
 
-	if (get_frameinfo_file(file, &frame_info, need_swap) == NULL) return -1;
+	// if (get_frameinfo_file(file, &frame_info, need_swap) == NULL) return -1;
+
+	if (fread(buffer, 14, 1, file) != 1) 
+		return -1;
+	if (get_frameinfo_buffer(buffer, &frame_info, need_swap) == NULL) 
+		return -1;
 
 	//Write PTS
 	//Parameters
