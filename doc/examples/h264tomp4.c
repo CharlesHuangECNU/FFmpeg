@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "libavformat/avformat.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/bswap.h"
@@ -20,16 +21,17 @@ uint64_t start_timestamp = 0;
 uint64_t last_timestamp = 0;
 
 
-static char* getmp4filename(char* filename, char* outfilename)
+static char* changextname(char* filename, char* outfilename, const char* extname)
 {
 	char *file, *ext, tmp[1024];
 
-	*outfilename = 0x00;
 	file = strrchr(filename, '/');
 	if (file) {
-		if ((file - filename + 1) == strlen(filename)) {		
+		if ((file - filename + 1) == strlen(filename)) {
+			*outfilename = 0x00;		
 			return outfilename;
 		}
+		memset(outfilename, 0, file - filename + 1);
 		strncpy(outfilename, filename, file - filename);
 	}
 	else {
@@ -42,12 +44,24 @@ static char* getmp4filename(char* filename, char* outfilename)
 			*outfilename = 0x00;
 			return outfilename;
 		}
-		strncpy(tmp, file, (int)(ext - file));
+		memset(tmp, 0, ext -  file + 1);
+		strncpy(tmp, file, ext - file);
 	}
 	else {
 		strcpy(tmp, file);
 	}
-	strcat(tmp, ".mp4");
+
+	if (strlen(extname)) {
+		ext = strrchr(extname, '.');
+		if (ext) {
+			strcat(tmp, ext);
+		}
+		else {
+			strcat(tmp, ".");
+			strcat(tmp, ext);
+		}
+	}
+	
 	return strcat(outfilename, tmp);
 }
 
@@ -276,10 +290,11 @@ int main(int argc, char **argv)
 	// strcpy(in_filename, "./0420/rec.h264");
 	// strcpy(in_filename, "./0420/timestemp.h264");
 
-	getmp4filename(in_filename, out_filename);
+	changextname(in_filename, out_filename, ".mp4");
+	changextname(in_filename, index_filename, ".idx");
 
 	// strcpy(index_filename, "./0420/stream_only_pts.h264");
-	if (strlen(index_filename) != 0) {
+	if (access(index_filename, F_OK) == 0) {
 		if ((index_file = open_index(index_filename)) == NULL) {
 				printf("Could not open index file: %s.\n", index_filename); 
 			}
