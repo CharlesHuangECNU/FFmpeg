@@ -137,7 +137,7 @@ static void formatdatetime(char *formated_datetime, uint64_t timestamp)
 	tm = *gmtime_r(&now_time, &tm);
 
 	// UTC time format
-	sprintf(formated_datetime, "%4d-%02d-%02dT%02d:%02d:%02d.%6dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(timestamp % 1000000));
+	sprintf(formated_datetime, "%4d-%02d-%02dT%02d:%02d:%02d.%06dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(timestamp % 1000000));
 }
 
 static void formattime(char *formated_time, uint64_t time, int decimals, enum AVRounding round)
@@ -281,12 +281,12 @@ int main(int argc, char **argv)
 	// strcpy(index_filename, "./0420/stream_only_pts.h264");
 	if (strlen(index_filename) != 0) {
 		if ((index_file = open_index(index_filename)) == NULL) {
-				printf("Could not open index file : %s.\n", index_filename); 
+				printf("Could not open index file: %s.\n", index_filename); 
 			}
 	}
 	 
 	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
-		printf("Could not open input file : %s.\n", in_filename); 
+		printf("Could not open input file: %s.\n", in_filename); 
 		goto end;
 	}
 	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
@@ -423,13 +423,16 @@ int main(int argc, char **argv)
 	av_write_trailer(ofmt_ctx);
 
 	printf("\n");
-	printf("Output : %s\n", out_filename);
+	if (strlen(index_filename)) {
+		printf("Index: %s\n", index_filename);
+	}
+	printf("Output: %s\n", out_filename);
 	formatdatetime(format_time, start_timestamp);
- 	printf("start time : %s, ", format_time);
+ 	printf("start time: %s, ", format_time);
  	formatdatetime(format_time, last_timestamp);
- 	printf("end time : %s\n", format_time);
+ 	printf("end time: %s\n", format_time);
 	formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
-	printf("total frames : %d, duration : %s, frame rate : %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
+	printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
 	printf("\n");
 
 end:
