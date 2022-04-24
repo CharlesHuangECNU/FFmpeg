@@ -20,6 +20,16 @@ typedef struct FrameInfo {
 uint64_t start_timestamp = 0;
 uint64_t last_timestamp = 0;
 
+static char* getfilename(char* filename) {
+	char* file = strrchr(filename, '/');
+	if (file) {
+		file++;
+	}
+	else {
+		file = filename;
+	}
+	return file;
+}
 
 static char* changextname(char* filename, char* outfilename, const char* extname)
 {
@@ -266,11 +276,22 @@ static void close_index(FILE *file)
 	}
 }
 
+static void help(char * prgname)
+{
+    printf("%s [-h] [-q] [-i <h264filename>] [-o <mp4filename>] [-e <extrainfo>]\n"
+		   "-h                  print this help\n"
+		   "-q                  run quiet\n"
+           "-i <h264filename>   h264 filename (with/without extrainfo)\n"
+		   "-o <mp4filename>    mp4 filename\n"
+		   "-e <extrainfo>      extrainfo filename (omit extroinfo in h264 file)\n", prgname);
+}
+
 int main(int argc, char **argv)
 {
 	AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
 	AVPacket pkt;
 	char in_filename[1024], out_filename[1024], index_filename[1024];
+	char *prgname;
 	char format_time[32];
 	int ret, i;
 	int stream_index = 0;
@@ -279,21 +300,52 @@ int main(int argc, char **argv)
 	int m_frame_index = 0;
 	int trailercount = 0;
 	uint8_t buffer[128];
+	int c;
+	int displaymsg = 1;
 
 	FILE *index_file = NULL;
 	memset(in_filename, 0, 1024);
 	memset(out_filename, 0, 1024);
 	memset(index_filename, 0, 1024);
+
+	prgname = getfilename(argv[0]);
+	for (;;) {
+        c = getopt(argc, argv, "i:o:e:hq");
+        if (c == -1)
+            break;
+        switch (c) {
+        case 'i':
+            strcpy(in_filename, optarg);
+            break;
+		case 'q':
+			displaymsg = 0;
+            break;
+        case 'o':
+            strcpy(out_filename, optarg);
+            break;
+        case 'e':
+            strcpy(index_filename, optarg);
+            break;
+        default:
+        case 'h':
+            help(prgname);
+            return 0;
+        }
+    }
 	
-	strcpy(in_filename, "./0420/stream_with_pts.h264");
-	// strcpy(in_filename, "./0420/stream_without_pts.h264");
-	// strcpy(in_filename, "./0420/rec.h264");
-	// strcpy(in_filename, "./0420/timestemp.h264");
+	if (strlen(in_filename) == 0) {
+		help(prgname);
+		return 0;
+	}
 
-	changextname(in_filename, out_filename, ".mp4");
-	changextname(in_filename, index_filename, ".idx");
+	if (strlen(out_filename) == 0) {
+		changextname(in_filename, out_filename, ".mp4");
+	}
+	
+	if (strlen(index_filename) == 0) {
+		changextname(in_filename, index_filename, ".idx");
+	}
 
-	// strcpy(index_filename, "./0420/stream_only_pts.h264");
 	if (access(index_filename, F_OK) == 0) {
 		if ((index_file = open_index(index_filename)) == NULL) {
 				printf("Could not open index file: %s.\n", index_filename); 
@@ -309,10 +361,12 @@ int main(int argc, char **argv)
 		goto end;
 	}
  
-	printf("===========Input Information==========\n"); 
-	av_dump_format(ifmt_ctx, 0, in_filename, 0); 
-	printf("======================================\n"); 
- 
+	if (displaymsg) {
+		printf("===========Input Information==========\n"); 
+		av_dump_format(ifmt_ctx, 0, in_filename, 0); 
+		printf("======================================\n"); 
+	}
+
 	avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename);
 	if (!ofmt_ctx) {
 		printf("Could not create output context\n"); 
@@ -437,18 +491,20 @@ int main(int argc, char **argv)
 
 	av_write_trailer(ofmt_ctx);
 
-	printf("\n");
-	if (strlen(index_filename)) {
-		printf("Index: %s\n", index_filename);
+	if (displaymsg) {
+		printf("\n");
+		if (strlen(index_filename) && (index_file)) {
+			printf("Index: %s\n", index_filename);
+		}
+		printf("Output: %s\n", out_filename);
+		formatdatetime(format_time, start_timestamp);
+		printf("start time: %s, ", format_time);
+		formatdatetime(format_time, last_timestamp);
+		printf("end time: %s\n", format_time);
+		formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
+		printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
+		printf("\n");
 	}
-	printf("Output: %s\n", out_filename);
-	formatdatetime(format_time, start_timestamp);
- 	printf("start time: %s, ", format_time);
- 	formatdatetime(format_time, last_timestamp);
- 	printf("end time: %s\n", format_time);
-	formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
-	printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
-	printf("\n");
 
 end:
 	avformat_close_input(&ifmt_ctx); 
