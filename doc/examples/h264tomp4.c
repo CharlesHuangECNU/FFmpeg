@@ -559,7 +559,7 @@ static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_fil
 		formatdatetime(format_time, video_file->last_frame.timestamp);
 		printf("end time: %s\n", format_time);
 		printf("start frame %d, end frame: %d, frames: %d\n", video_file->start_frame.frameid, video_file->last_frame.frameid, video_file->frame_count);
-		printf("nim duration: %d, max duration: %d\n", (video_file->min_delta_time == AV_TIME_BASE) ? 0 : video_file->min_delta_time, video_file->max_delta_time);
+		printf("min duration: %d, max duration: %d\n", (video_file->min_delta_time == AV_TIME_BASE) ? 0 : video_file->min_delta_time, video_file->max_delta_time);
 		printf("\n");
 	}
 
@@ -619,9 +619,13 @@ int main(int argc, char **argv)
 	char *prgname;
 	int ret;
 	int c;
+	int has_next_file = 0;
 
 	memset(in_filename, 0, 1024);
-
+	memset(out_filename, 0, 1024);
+	memset(index_filename, 0, 1024);
+	memset(next_filename, 0, 1024);
+	
 	prgname = getfilename(argv[0]);
 	for (;;) {
         c = getopt(argc, argv, "i:o:e:hq");
@@ -653,18 +657,19 @@ int main(int argc, char **argv)
 	}
 
 	do {		
-		memset(out_filename, 0, 1024);
-		memset(index_filename, 0, 1024);
-		memset(next_filename, 0, 1024);
-
+		
 		if (ret = transform(ofmt_ctx, in_filename, out_filename, index_filename, next_filename)) return ret;
 
-		if (strlen(next_filename)) {
+		if (has_next_file = strlen(next_filename)) {
 			strcpy(in_filename, next_filename);
 			video_index++;
 		}
 
-	} while (strlen(next_filename));
+		memset(out_filename, 0, 1024);
+		memset(index_filename, 0, 1024);
+		memset(next_filename, 0, 1024);
+
+	} while (has_next_file);
 		
 	return 0;
 }
