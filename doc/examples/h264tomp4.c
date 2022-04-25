@@ -36,6 +36,21 @@ static char* getfilename(char* filename) {
 	return file;
 }
 
+static char* getfileext(char* filename) {
+	char *file;
+
+	file = strrchr(filename, '/');
+	if (file) {
+		if ((file - filename + 1) == strlen(filename)) {	
+			return NULL;
+		}
+	}
+	else {
+		file = filename;
+	}
+	return strrchr(file, '.');
+}
+
 static char* changextname(char* filename, char* outfilename, const char* extname)
 {
 	char *file, *ext, tmp[1024];
@@ -55,10 +70,6 @@ static char* changextname(char* filename, char* outfilename, const char* extname
 	
 	ext = strrchr(file, '.');
 	if (ext) {
-		if (strrchr(ext, '/')) {
-			*outfilename = 0x00;
-			return outfilename;
-		}
 		memset(tmp, 0, ext -  file + 1);
 		strncpy(tmp, file, ext - file);
 	}
@@ -298,7 +309,7 @@ int main(int argc, char **argv)
 	AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
 	AVPacket pkt;
 	char in_filename[1024], out_filename[1024], index_filename[1024];
-	char *prgname;
+	char *prgname, *fileext;
 	char format_time[32];
 	int ret, i;
 	int stream_index = 0;
@@ -346,6 +357,10 @@ int main(int argc, char **argv)
 	if (strlen(in_filename) == 0) {
 		help(prgname);
 		return 0;
+	}
+	
+	if (fileext = getfileext(in_filename)) {
+		
 	}
 
 	if (strlen(out_filename) == 0) {
