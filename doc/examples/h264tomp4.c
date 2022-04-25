@@ -17,8 +17,13 @@ typedef struct FrameInfo {
 	char *nextfilename;
 } FrameInfo;
 
-uint64_t start_timestamp = 0;
-uint64_t last_timestamp = 0;
+FrameInfo start_frame, last_frame;
+
+static void initframeinfo(FrameInfo *info) {
+	info->frameid = 0;
+	info->timestamp = 0;
+	info->nextfilename = NULL;
+}
 
 static char* getfilename(char* filename) {
 	char* file = strrchr(filename, '/');
@@ -242,18 +247,20 @@ static int setTimeStamp(AVPacket *pkt, uint8_t *buffer, int8_t need_swap)
 
 	//Write PTS
 	//Parameters
-	if (last_timestamp == 0) {
+	if (last_frame.timestamp == 0) {
 		pkt->pts = 0;
 		pkt->dts=pkt->pts;
 		pkt->duration = 0;
-		start_timestamp = frame_info.timestamp;
+		start_frame.frameid = frame_info.frameid;
+		start_frame.timestamp = frame_info.timestamp;
 	}
 	else {
-		pkt->pts = frame_info.timestamp - start_timestamp;
+		pkt->pts = frame_info.timestamp - start_frame.timestamp;
 		pkt->dts=pkt->pts;
-		pkt->duration = frame_info.timestamp - last_timestamp;
+		pkt->duration = frame_info.timestamp - last_frame.timestamp;
 	}
-	last_timestamp = frame_info.timestamp;
+	last_frame.frameid = frame_info.frameid;
+	last_frame.timestamp = frame_info.timestamp;
 	pkt->pos = -1;
 	pkt->time_base = (AVRational){1, AV_TIME_BASE};
 
@@ -307,6 +314,9 @@ int main(int argc, char **argv)
 	memset(in_filename, 0, 1024);
 	memset(out_filename, 0, 1024);
 	memset(index_filename, 0, 1024);
+
+	initframeinfo(&start_frame);
+	initframeinfo(&last_frame);
 
 	prgname = getfilename(argv[0]);
 	for (;;) {
@@ -497,12 +507,14 @@ int main(int argc, char **argv)
 			printf("Index: %s\n", index_filename);
 		}
 		printf("Output: %s\n", out_filename);
-		formatdatetime(format_time, start_timestamp);
+		formatdatetime(format_time, start_frame.timestamp);
 		printf("start time: %s, ", format_time);
-		formatdatetime(format_time, last_timestamp);
+		formatdatetime(format_time, last_frame.timestamp);
 		printf("end time: %s\n", format_time);
-		formattime(format_time, last_timestamp - start_timestamp, 1, AV_ROUND_DOWN);
-		printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_timestamp - start_timestamp));
+		printf("start frame %d, ", start_frame.frameid);
+		printf("end frame: %d\n", last_frame.frameid);
+		formattime(format_time, last_frame.timestamp - start_frame.timestamp, 1, AV_ROUND_DOWN);
+		printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_frame.timestamp - start_frame.timestamp));
 		printf("\n");
 	}
 
