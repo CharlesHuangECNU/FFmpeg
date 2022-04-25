@@ -10,6 +10,7 @@
 
 #define SEPARATOR 0xFF
 #define TRAILER_LEN	8
+#define EXIT_PROGRAM -9999
 
 typedef struct FrameInfo {
 	uint32_t frameid;
@@ -18,6 +19,9 @@ typedef struct FrameInfo {
 } FrameInfo;
 
 FrameInfo start_frame, last_frame;
+
+int m_frame_index = 0;
+int displaymsg = 1;
 
 static void initframeinfo(FrameInfo *info) {
 	info->frameid = 0;
@@ -294,79 +298,33 @@ static void close_index(FILE *file)
 	}
 }
 
-static void help(char * prgname)
+static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_filename, char *index_filename, char *next_filename)
 {
-    printf("%s [-h] [-q] [-i <h264filename>] [-o <mp4filename>] [-e <extrainfo>]\n"
-		   "-h                  print this help\n"
-		   "-q                  run quiet\n"
-           "-i <h264filename>   h264 filename (with/without extrainfo)\n"
-		   "-o <mp4filename>    mp4 filename\n"
-		   "-e <extrainfo>      extrainfo filename (omit extroinfo in h264 file)\n", prgname);
-}
-
-int main(int argc, char **argv)
-{
-	AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
+	AVFormatContext *ifmt_ctx = NULL;
 	AVPacket pkt;
-	char in_filename[1024], out_filename[1024], index_filename[1024];
-	char *prgname, *fileext;
+	char *fileext = NULL;
 	char format_time[32];
 	int ret, i;
 	int stream_index = 0;
 	int *stream_mapping = NULL;
 	int stream_mapping_size = 0;
-	int m_frame_index = 0;
 	int trailercount = 0;
 	uint8_t buffer[128];
-	int c;
-	int displaymsg = 1;
-
+	
 	FILE *index_file = NULL;
-	memset(in_filename, 0, 1024);
-	memset(out_filename, 0, 1024);
-	memset(index_filename, 0, 1024);
 
-	initframeinfo(&start_frame);
-	initframeinfo(&last_frame);
+	int newoutput = (ofmt_ctx == NULL);
 
-	prgname = getfilename(argv[0]);
-	for (;;) {
-        c = getopt(argc, argv, "i:o:e:hq");
-        if (c == -1)
-            break;
-        switch (c) {
-        case 'i':
-            strcpy(in_filename, optarg);
-            break;
-		case 'q':
-			displaymsg = 0;
-            break;
-        case 'o':
-            strcpy(out_filename, optarg);
-            break;
-        case 'e':
-            strcpy(index_filename, optarg);
-            break;
-        default:
-        case 'h':
-            help(prgname);
-            return 0;
-        }
-    }
-	
-	if (strlen(in_filename) == 0) {
-		help(prgname);
-		return 0;
-	}
-	
 	if (fileext = getfileext(in_filename)) {
-		
+
 	}
 
-	if (strlen(out_filename) == 0) {
-		changextname(in_filename, out_filename, ".mp4");
+	if (newoutput) {
+		if (strlen(out_filename) == 0) {
+			changextname(in_filename, out_filename, ".mp4");
+		}
 	}
-	
+		
 	if (strlen(index_filename) == 0) {
 		changextname(in_filename, index_filename, ".idx");
 	}
@@ -392,13 +350,15 @@ int main(int argc, char **argv)
 		printf("======================================\n"); 
 	}
 
-	avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename);
-	if (!ofmt_ctx) {
-		printf("Could not create output context\n"); 
-		ret = AVERROR_UNKNOWN; 
-		goto end;
+	if (newoutput) {
+		avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename);
+		if (!ofmt_ctx) {
+			printf("Could not create output context\n"); 
+			ret = AVERROR_UNKNOWN; 
+			goto end;
+		}
 	}
- 
+
 	stream_mapping_size = ifmt_ctx->nb_streams;
 	stream_mapping = (int *)av_calloc(stream_mapping_size, sizeof(*stream_mapping));
 	if (!stream_mapping) {
@@ -420,39 +380,45 @@ int main(int argc, char **argv)
  
 		stream_mapping[i] = stream_index++;
 
-		// add new stream to media file (ofmt_ctx)
-		out_stream = avformat_new_stream(ofmt_ctx, NULL);
-		if (!out_stream) {
-            fprintf(stderr, "Failed allocating output stream\n");
-            ret = AVERROR_UNKNOWN;
-            goto end;
-        }
+		if (newoutput) {
+			// add new stream to media file (ofmt_ctx)
+			out_stream = avformat_new_stream(ofmt_ctx, NULL);
+			if (!out_stream) {
+				fprintf(stderr, "Failed allocating output stream\n");
+				ret = AVERROR_UNKNOWN;
+				goto end;
+			}
  
-		ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
-    	if (ret < 0) {
-            fprintf(stderr, "Failed to copy codec parameters\n");
-            goto end;
-        }
-		out_stream->codecpar->codec_tag = 0;
+			ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
+			if (ret < 0) {
+				fprintf(stderr, "Failed to copy codec parameters\n");
+				goto end;
+			}
+			out_stream->codecpar->codec_tag = 0;
 
-		out_stream->time_base = (AVRational){1, AV_TIME_BASE};
+			out_stream->time_base = (AVRational){1, AV_TIME_BASE};
+		}
+		else {
+			out_stream = ofmt_ctx->streams[stream_mapping[i]];
+		}
 	}
  
-	if (!(ofmt_ctx->oformat->flags & AVFMT_NOFILE)) {
-		ret = avio_open(&ofmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
+	if (newoutput) {
+		if (!(ofmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+			ret = avio_open(&ofmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
+			if (ret < 0) {
+				fprintf(stderr, "Could not open output file '%s'", out_filename);
+				goto end;
+			}
+		}
+
+		ret = avformat_write_header(ofmt_ctx, NULL);
 		if (ret < 0) {
-			fprintf(stderr, "Could not open output file '%s'", out_filename);
-            goto end;
+			fprintf(stderr, "Error occurred when opening output file\n");
+			goto end;
 		}
 	}
 
-	ret = avformat_write_header(ofmt_ctx, NULL);
-	if (ret < 0) {
-		fprintf(stderr, "Error occurred when opening output file\n");
-        goto end;
-	}
-
-	m_frame_index = 0;
 	while (1) {
 		AVStream *in_stream, *out_stream;
  
@@ -501,7 +467,7 @@ int main(int argc, char **argv)
 			}
 			else {
 				if (fread(buffer, 14, 1, index_file) != 1) 
-					return -1;
+					goto end;
 				setTimeStamp(&pkt, buffer, 1);
 			}
 		}
@@ -514,23 +480,45 @@ int main(int argc, char **argv)
 		m_frame_index++;
 	}
 
-	av_write_trailer(ofmt_ctx);
-
 	if (displaymsg) {
 		printf("\n");
 		if (strlen(index_filename) && (index_file)) {
 			printf("Index: %s\n", index_filename);
 		}
-		printf("Output: %s\n", out_filename);
 		formatdatetime(format_time, start_frame.timestamp);
 		printf("start time: %s, ", format_time);
 		formatdatetime(format_time, last_frame.timestamp);
 		printf("end time: %s\n", format_time);
 		printf("start frame %d, ", start_frame.frameid);
 		printf("end frame: %d\n", last_frame.frameid);
-		formattime(format_time, last_frame.timestamp - start_frame.timestamp, 1, AV_ROUND_DOWN);
-		printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_frame.timestamp - start_frame.timestamp));
 		printf("\n");
+	}
+
+	// get next_filename
+	if (last_frame.nextfilename) {
+		if (strlen(last_frame.nextfilename)) {
+			strcpy(next_filename, last_frame.nextfilename);
+		}
+		free(last_frame.nextfilename);
+		last_frame.nextfilename = NULL;
+	}
+
+	ret = 0;
+	if (strlen(next_filename)) {
+		avformat_close_input(&ifmt_ctx); 
+		av_freep(&stream_mapping);
+		close_index(index_file); 
+		return ret;	
+	}
+	else {
+		av_write_trailer(ofmt_ctx);
+		
+		if (displaymsg) {
+			printf("Output: %s\n", out_filename);
+			formattime(format_time, last_frame.timestamp - start_frame.timestamp, 1, AV_ROUND_DOWN);
+			printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(last_frame.timestamp - start_frame.timestamp));
+			printf("\n");
+		}
 	}
 
 end:
@@ -540,7 +528,72 @@ end:
 	avformat_free_context(ofmt_ctx);
  
 	av_freep(&stream_mapping);
-	close_index(index_file);
+	close_index(index_file); 
+	return ret;
+}
+
+static void help(char * prgname)
+{
+    printf("%s [-h] [-q] [-i <h264filename>] [-o <mp4filename>] [-e <extrainfo>]\n"
+		   "-h                  print this help\n"
+		   "-q                  run quiet\n"
+           "-i <h264filename>   h264 filename (with/without extrainfo)\n"
+		   "-o <mp4filename>    mp4 filename\n"
+		   "-e <extrainfo>      extrainfo filename (omit extroinfo in h264 file)\n", prgname);
+}
+
+int main(int argc, char **argv)
+{
+	AVFormatContext *ofmt_ctx = NULL;
+	char in_filename[1024], out_filename[1024], index_filename[1024], next_filename[1024];
+	char *prgname;
+	int ret;
+	int c;
+
+	memset(in_filename, 0, 1024);
+	initframeinfo(&start_frame);
+	initframeinfo(&last_frame);
+
+	prgname = getfilename(argv[0]);
+	for (;;) {
+        c = getopt(argc, argv, "i:o:e:hq");
+        if (c == -1)
+            break;
+        switch (c) {
+        case 'i':
+            strcpy(in_filename, optarg);
+            break;
+		case 'q':
+			displaymsg = 0;
+            break;
+        case 'o':
+            strcpy(out_filename, optarg);
+            break;
+        case 'e':
+            strcpy(index_filename, optarg);
+            break;
+        default:
+        case 'h':
+            help(prgname);
+            return 0;
+        }
+    }
 	
+	if (strlen(in_filename) == 0) {
+		help(prgname);
+		return 0;
+	}
+
+	do {		
+		memset(out_filename, 0, 1024);
+		memset(index_filename, 0, 1024);
+		memset(next_filename, 0, 1024);
+
+		if (ret = transform(ofmt_ctx, in_filename, out_filename, index_filename, next_filename)) return ret;
+
+		if (strlen(next_filename)) strcpy(in_filename, next_filename);
+
+	} while (strlen(next_filename));
+		
 	return 0;
 }
