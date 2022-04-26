@@ -27,11 +27,39 @@ typedef struct VideoFileInfo
 	int32_t frame_count;
 } VideoFileInfo;
 
+typedef struct VideoFile
+{
+	char in_filename[1024];
+	char out_filename[1024];
+	char index_filename[1024];
+	AVFormatContext *ifmt_ctx;
+	AVFormatContext *ofmt_ctx;
+	FILE *index_file;
+} VideoFile;
+
 VideoFileInfo **video_files = NULL;
 int video_index = 0;
 
 int m_frame_index = 0;
 int displaymsg = 1;
+
+static void initvideofile(VideoFile *videofile) {
+	memset(videofile->in_filename, 0, 1024);
+	memset(videofile->out_filename, 0, 1024);
+	memset(videofile->index_filename, 0, 1024);
+	videofile->ifmt_ctx = NULL;
+	videofile->ofmt_ctx = NULL;
+	videofile->index_file = NULL;
+}
+
+static void copyvideofile(VideoFile *des_videofile, VideoFile *src_videofile) {
+	strcpy(src_videofile->in_filename, des_videofile->in_filename);
+	strcpy(src_videofile->out_filename, des_videofile->out_filename);
+	strcpy(src_videofile->index_filename, des_videofile->index_filename);
+	src_videofile->ifmt_ctx = des_videofile->ifmt_ctx;
+	src_videofile->ofmt_ctx = src_videofile->ofmt_ctx;
+	src_videofile->index_file = des_videofile->index_file;
+}
 
 static void free_video_file(VideoFileInfo *video_file) {
 	if (video_file) {
@@ -353,9 +381,10 @@ static void close_index(FILE *file)
 	}
 }
 
-static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_filename, char *index_filename, char *next_filename)
+static int transform(VideoFile *videofile, VideoFile *next_videofile)
 {
 	AVFormatContext *ifmt_ctx = NULL;
+	AVFormatContext *ofmt_ctx = NULL;
 	AVPacket pkt;
 	VideoFileInfo *video_file = NULL;
 	char *fileext = NULL;
@@ -366,10 +395,15 @@ static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_fil
 	int stream_mapping_size = 0;
 	int trailercount = 0;
 	uint8_t buffer[128];
-	
+	char *in_filename, *out_filename, *index_filename;
 	FILE *index_file = NULL;
+	int newoutput;
 
-	int newoutput = (ofmt_ctx == NULL);
+	in_filename = videofile->in_filename;
+	out_filename = videofile->out_filename;
+	index_filename = videofile->index_filename;
+
+	newoutput = (videofile->ofmt_ctx == NULL);
 
 	video_files = realloc(video_files, sizeof(VideoFileInfo *) * (video_index + 1));
 	if (!video_files) {
@@ -398,15 +432,19 @@ static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_fil
 	}
 
 	if (access(index_filename, F_OK) == 0) {
-		if ((index_file = open_index(index_filename)) == NULL) {
-				printf("Could not open index file: %s.\n", index_filename); 
-			}
+		if ((videofile->index_file = open_index(index_filename)) == NULL) {
+			printf("Could not open index file: %s.\n", index_filename); 
+		}
+		else {
+			index_file = videofile->index_file;
+		}
 	}
 	 
-	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
+	if ((ret = avformat_open_input(&videofile->ifmt_ctx, in_filename, 0, 0)) < 0) {
 		printf("Could not open input file: %s.\n", in_filename); 
 		goto end;
 	}
+	ifmt_ctx = videofile->ifmt_ctx;
 	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
 		printf("Failed to retrieve input stream information");
 		goto end;
@@ -419,13 +457,14 @@ static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_fil
 	}
 
 	if (newoutput) {
-		avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename);
-		if (!ofmt_ctx) {
+		avformat_alloc_output_context2(&videofile->ofmt_ctx, NULL, NULL, out_filename);
+		if (!videofile->ofmt_ctx) {
 			printf("Could not create output context\n"); 
 			ret = AVERROR_UNKNOWN; 
 			goto end;
 		}
 	}
+	ofmt_ctx = videofile->ofmt_ctx;
 
 	stream_mapping_size = ifmt_ctx->nb_streams;
 	stream_mapping = (int *)av_calloc(stream_mapping_size, sizeof(*stream_mapping));
@@ -566,14 +605,21 @@ static int transform(AVFormatContext *ofmt_ctx, char *in_filename, char *out_fil
 	// get next_filename
 	if (video_file->last_frame.nextfilename) {
 		if (strlen(video_file->last_frame.nextfilename)) {
-			strcpy(next_filename, video_file->last_frame.nextfilename);
+			// copy to next_videofile
+			strcpy(next_videofile->in_filename, video_file->last_frame.nextfilename);
+			next_videofile->ifmt_ctx = NULL;
+			strcpy(next_videofile->out_filename, videofile->out_filename);
+			next_videofile->ofmt_ctx = ofmt_ctx;
+			memset(next_videofile->index_filename, 0, 1024);
+			next_videofile->index_file = NULL;
 		}
 		free(video_file->last_frame.nextfilename);
 		video_file->last_frame.nextfilename = NULL;
 	}
 
 	ret = 0;
-	if (strlen(next_filename)) {
+	if (strlen(next_videofile->in_filename)) {
+
 		avformat_close_input(&ifmt_ctx); 
 		av_freep(&stream_mapping);
 		close_index(index_file); 
@@ -614,18 +660,15 @@ static void help(char * prgname)
 
 int main(int argc, char **argv)
 {
-	AVFormatContext *ofmt_ctx = NULL;
-	char in_filename[1024], out_filename[1024], index_filename[1024], next_filename[1024];
 	char *prgname;
 	int ret;
 	int c;
 	int has_next_file = 0;
+	VideoFile videofile, next_videofile;
 
-	memset(in_filename, 0, 1024);
-	memset(out_filename, 0, 1024);
-	memset(index_filename, 0, 1024);
-	memset(next_filename, 0, 1024);
-	
+	initvideofile(&videofile);
+	initvideofile(&next_videofile);
+
 	prgname = getfilename(argv[0]);
 	for (;;) {
         c = getopt(argc, argv, "i:o:e:hq");
@@ -633,16 +676,16 @@ int main(int argc, char **argv)
             break;
         switch (c) {
         case 'i':
-            strcpy(in_filename, optarg);
+            strcpy(videofile.in_filename, optarg);
             break;
 		case 'q':
 			displaymsg = 0;
             break;
         case 'o':
-            strcpy(out_filename, optarg);
+            strcpy(videofile.out_filename, optarg);
             break;
         case 'e':
-            strcpy(index_filename, optarg);
+            strcpy(videofile.index_filename, optarg);
             break;
         default:
         case 'h':
@@ -651,24 +694,18 @@ int main(int argc, char **argv)
         }
     }
 	
-	if (strlen(in_filename) == 0) {
+	if (strlen(videofile.in_filename) == 0) {
 		help(prgname);
 		return 0;
 	}
 
 	do {		
-		
-		if (ret = transform(ofmt_ctx, in_filename, out_filename, index_filename, next_filename)) return ret;
+		if (ret = transform(&videofile, &next_videofile)) return ret;
 
-		if (has_next_file = strlen(next_filename)) {
-			strcpy(in_filename, next_filename);
+		if (has_next_file = strlen(next_videofile.in_filename)) {
+			copyvideofile(&next_videofile, &videofile);
 			video_index++;
 		}
-
-		memset(out_filename, 0, 1024);
-		memset(index_filename, 0, 1024);
-		memset(next_filename, 0, 1024);
-
 	} while (has_next_file);
 		
 	return 0;
