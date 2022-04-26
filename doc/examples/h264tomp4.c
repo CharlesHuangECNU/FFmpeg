@@ -345,29 +345,43 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 	return frame_info;
 }
 
-static int setTimeStamp(VideoFileInfo *video_file, int video_index, AVPacket *pkt, uint8_t *buffer, int8_t need_swap)
+static int setTimeStamp(VideoFileInfo **video_files, int video_index, AVPacket *pkt, uint8_t *buffer, int8_t need_swap)
 {
 	FrameInfo frame_info;
-
+	VideoFileInfo *video_file = video_files[video_index];
+	
 	if (get_frameinfo(buffer, &frame_info, need_swap) == NULL) 
 		return -1;
 
 	//Write PTS
 	//Parameters
-	if ((video_index == 0) && (video_file->last_frame.timestamp == 0)) {
-		pkt->pts = 0;
-		pkt->dts=pkt->pts;
-		pkt->duration = 0;
+	if ((video_file->frame_count == 0) && (video_file->last_frame.timestamp == 0)) {
+		if (video_index == 0) {
+			pkt->pts = 0;
+			pkt->dts = pkt->pts;
+			pkt->duration = 0;
+		}
+		else {
+			pkt->pts = frame_info.timestamp - video_files[0]->start_frame.timestamp;
+			pkt->dts = pkt->pts;
+			pkt->duration = frame_info.timestamp - video_files[video_index -1]->last_frame.timestamp;
+		}
 		video_file->start_frame.frameid = frame_info.frameid;
 		video_file->start_frame.timestamp = frame_info.timestamp;
 	}
 	else {
-		pkt->pts = frame_info.timestamp - video_file->start_frame.timestamp;
-		pkt->dts=pkt->pts;
+		pkt->pts = frame_info.timestamp - video_files[0]->start_frame.timestamp;
+		pkt->dts = pkt->pts;
 		pkt->duration = frame_info.timestamp - video_file->last_frame.timestamp;
 	}
 	video_file->last_frame.frameid = frame_info.frameid;
 	video_file->last_frame.timestamp = frame_info.timestamp;
+
+	if (frame_info.nextfilename) {
+		video_file->last_frame.nextfilename = calloc(sizeof(char), strlen(frame_info.nextfilename) + 1);
+		strcpy(video_file->last_frame.nextfilename, frame_info.nextfilename);
+		free(frame_info.nextfilename);
+	}
 	pkt->pos = -1;
 	pkt->time_base = (AVRational){1, AV_TIME_BASE};
 
