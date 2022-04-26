@@ -187,11 +187,11 @@ static int alldigits(uint8_t *str, const int len)
 
 static int hasextrainfo(AVPacket *pkt) {
 	uint8_t *src_buf;
-	uint8_t trailer[TRAILER_LEN];
+	uint8_t trailer[TRAILER_LEN + 1];
 	int trailercount = 0;
 
 	if (!pkt) return trailercount;
-
+	memset(trailer, 0, TRAILER_LEN + 1);
 	src_buf = pkt->data + pkt->size - TRAILER_LEN;
 	memcpy(trailer, src_buf, TRAILER_LEN);
 
