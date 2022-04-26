@@ -38,6 +38,7 @@ typedef struct VideoFile
 } VideoFile;
 
 VideoFileInfo **video_files = NULL;
+char root_path[1024];
 int video_index = 0;
 
 int m_frame_index = 0;
@@ -630,13 +631,17 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 	}
 
 	// get next_filename
+	initvideofile(next_videofile);
 	if (video_file->last_frame.nextfilename) {
 		if (strlen(video_file->last_frame.nextfilename)) {
 			// copy to next_videofile
-			strcpy(next_videofile->in_filename, video_file->last_frame.nextfilename);
+			strcpy(next_videofile->in_filename, root_path);
+			strcat(next_videofile->in_filename, video_file->last_frame.nextfilename);
 			next_videofile->ifmt_ctx = NULL;
+
 			strcpy(next_videofile->out_filename, videofile->out_filename);
 			next_videofile->ofmt_ctx = ofmt_ctx;
+
 			memset(next_videofile->index_filename, 0, 1024);
 			next_videofile->index_file = NULL;
 		}
@@ -687,7 +692,7 @@ static void help(char * prgname)
 
 int main(int argc, char **argv)
 {
-	char *prgname;
+	char *prgname, *path;
 	int ret;
 	int c;
 	int has_next_file = 0;
@@ -695,6 +700,7 @@ int main(int argc, char **argv)
 
 	initvideofile(&videofile);
 	initvideofile(&next_videofile);
+	memset(root_path, 0, 1024);
 
 	prgname = getfilename(argv[0]);
 	for (;;) {
@@ -726,11 +732,19 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	path = strrchr(videofile.in_filename, '/');
+	if (path == NULL) {
+		strcpy(root_path, "./");
+	}
+	else {
+		strncpy(root_path, videofile.in_filename, path - videofile.in_filename + 1);
+	}
+
 	do {		
 		if (ret = transform(&videofile, &next_videofile)) return ret;
 
 		if (has_next_file = strlen(next_videofile.in_filename)) {
-			copyvideofile(&next_videofile, &videofile);
+			copyvideofile(&videofile, &next_videofile);
 			video_index++;
 		}
 	} while (has_next_file);
