@@ -53,17 +53,19 @@ static void initvideofile(VideoFile *videofile) {
 }
 
 static void copyvideofile(VideoFile *des_videofile, VideoFile *src_videofile) {
-	strcpy(src_videofile->in_filename, des_videofile->in_filename);
-	strcpy(src_videofile->out_filename, des_videofile->out_filename);
-	strcpy(src_videofile->index_filename, des_videofile->index_filename);
-	src_videofile->ifmt_ctx = des_videofile->ifmt_ctx;
-	src_videofile->ofmt_ctx = src_videofile->ofmt_ctx;
-	src_videofile->index_file = des_videofile->index_file;
+	strcpy(des_videofile->in_filename, src_videofile->in_filename);
+	strcpy(des_videofile->out_filename, src_videofile->out_filename);
+	strcpy(des_videofile->index_filename, src_videofile->index_filename);
+	des_videofile->ifmt_ctx = src_videofile->ifmt_ctx;
+	des_videofile->ofmt_ctx = src_videofile->ofmt_ctx;
+	des_videofile->index_file = src_videofile->index_file;
 }
 
 static void free_video_file(VideoFileInfo *video_file) {
 	if (video_file) {
 		free(video_file->file_name);
+		free(video_file->start_frame.nextfilename);
+		free(video_file->last_frame.nextfilename);
 		free(video_file);
 	}
 }
