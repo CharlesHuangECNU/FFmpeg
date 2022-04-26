@@ -290,7 +290,8 @@ static void formattime(char *formated_time, uint64_t time, int decimals, enum AV
 
 static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, const int8_t need_swap)
 {
-	uint8_t separate_char;
+	uint8_t separate_char, *trailer;
+	int len;
 
 	if (frame_info == NULL) return NULL;
 
@@ -325,12 +326,22 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 	av_log(NULL,AV_LOG_DEBUG,"timestamp : %ld",frame_info->timestamp);
 
 	separate_char = *buffer;
-	buffer++;
-	if (separate_char != SEPARATOR) {
-		av_log(NULL,AV_LOG_ERROR,"separate char error.");
-		return NULL;
+	trailer = strchr(buffer, SEPARATOR);
+	if (trailer > buffer) {
+		len = trailer - buffer;
+		frame_info->nextfilename = calloc(sizeof(char), len + 1);
+		strncpy(frame_info->nextfilename, buffer, trailer - buffer);
 	}
-
+	else {
+		if ((trailer != buffer) || (separate_char != SEPARATOR)) 
+		{
+			av_log(NULL,AV_LOG_ERROR,"separate char error.");
+			return NULL;
+		}
+		len = 0;
+	}
+	
+	buffer = buffer + len + 1;
 	return frame_info;
 }
 
