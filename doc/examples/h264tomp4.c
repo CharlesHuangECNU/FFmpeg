@@ -10,18 +10,19 @@
 
 #define SEPARATOR 0xFF
 #define TRAILER_LEN	8
+#define FILENAME_LEN 1024
 
 typedef struct FrameInfo {
-	uint32_t frameid;
+	uint32_t frame_id;
 	uint64_t timestamp;
-	char *nextfilename;
+	char *next_filename;
 } FrameInfo;
 
 typedef struct VideoFileInfo
 {
 	char *file_name;
-	FrameInfo start_frame;
-	FrameInfo last_frame;
+	FrameInfo start_frame_info;
+	FrameInfo last_frame_info;
 	int min_delta_time;
 	int max_delta_time;
 	int32_t frame_count;
@@ -29,27 +30,27 @@ typedef struct VideoFileInfo
 
 typedef struct VideoFile
 {
-	char in_filename[1024];
-	char out_filename[1024];
-	char index_filename[1024];
-	AVFormatContext *ifmt_ctx;
-	AVFormatContext *ofmt_ctx;
+	char in_filename[FILENAME_LEN];
+	char out_filename[FILENAME_LEN];
+	char index_filename[FILENAME_LEN];
+	AVFormatContext *in_fmt_ctx;
+	AVFormatContext *out_fmt_ctx;
 	FILE *index_file;
 } VideoFile;
 
-VideoFileInfo **video_files = NULL;
-char root_path[1024];
+VideoFileInfo **video_file_infos = NULL;
+char root_path[FILENAME_LEN];
 int video_index = 0;
 
 int m_frame_index = 0;
 int displaymsg = 1;
 
 static void initvideofile(VideoFile *videofile) {
-	memset(videofile->in_filename, 0, 1024);
-	memset(videofile->out_filename, 0, 1024);
-	memset(videofile->index_filename, 0, 1024);
-	videofile->ifmt_ctx = NULL;
-	videofile->ofmt_ctx = NULL;
+	memset(videofile->in_filename, 0, FILENAME_LEN);
+	memset(videofile->out_filename, 0, FILENAME_LEN);
+	memset(videofile->index_filename, 0, FILENAME_LEN);
+	videofile->in_fmt_ctx = NULL;
+	videofile->out_fmt_ctx = NULL;
 	videofile->index_file = NULL;
 }
 
@@ -57,59 +58,59 @@ static void copyvideofile(VideoFile *des_videofile, VideoFile *src_videofile) {
 	strcpy(des_videofile->in_filename, src_videofile->in_filename);
 	strcpy(des_videofile->out_filename, src_videofile->out_filename);
 	strcpy(des_videofile->index_filename, src_videofile->index_filename);
-	des_videofile->ifmt_ctx = src_videofile->ifmt_ctx;
-	des_videofile->ofmt_ctx = src_videofile->ofmt_ctx;
+	des_videofile->in_fmt_ctx = src_videofile->in_fmt_ctx;
+	des_videofile->out_fmt_ctx = src_videofile->out_fmt_ctx;
 	des_videofile->index_file = src_videofile->index_file;
 }
 
-static void free_video_file(VideoFileInfo *video_file) {
-	if (video_file) {
-		free(video_file->file_name);
-		free(video_file->start_frame.nextfilename);
-		free(video_file->last_frame.nextfilename);
-		free(video_file);
+static void free_video_file(VideoFileInfo *video_file_info) {
+	if (video_file_info) {
+		free(video_file_info->file_name);
+		free(video_file_info->start_frame_info.next_filename);
+		free(video_file_info->last_frame_info.next_filename);
+		free(video_file_info);
 	}
 }
 
-static void free_video_files(VideoFileInfo **video_files, int count) {
+static void free_video_files(VideoFileInfo **video_file_infos, int count) {
 	int i;
 
-	if (video_files) {
+	if (video_file_infos) {
 		for (i = 0; i < count; i++) {
-			free_video_file(video_files[i]);
+			free_video_file(video_file_infos[i]);
 		}
-		free(video_files);
+		free(video_file_infos);
 	}
 }
 
-static void updatedeltatime(VideoFileInfo *video_file, int deltatime) {
-	if (video_file && (deltatime > 0)) {
-		if (deltatime < video_file->min_delta_time) {
-			video_file->min_delta_time = deltatime;
+static void updatedeltatime(VideoFileInfo *video_file_info, int deltatime) {
+	if (video_file_info && (deltatime > 0)) {
+		if (deltatime < video_file_info->min_delta_time) {
+			video_file_info->min_delta_time = deltatime;
 		}
-		else if (deltatime > video_file->max_delta_time) {
-			video_file->max_delta_time = deltatime;
+		else if (deltatime > video_file_info->max_delta_time) {
+			video_file_info->max_delta_time = deltatime;
 		}
 	}
-	video_file->frame_count ++;
+	video_file_info->frame_count ++;
 }
 
-static void initframeinfo(FrameInfo *info) {
-	info->frameid = 0;
-	info->timestamp = 0;
-	info->nextfilename = NULL;
+static void initframeinfo(FrameInfo *frame_info) {
+	frame_info->frame_id = 0;
+	frame_info->timestamp = 0;
+	frame_info->next_filename = NULL;
 }
 
-static void initvideofileinfo(VideoFileInfo *video_file, char *filename) {
-	if (video_file && filename) {
-		video_file->file_name = malloc(strlen(filename) + 1);
-		strcpy(video_file->file_name, filename);
+static void initvideofileinfo(VideoFileInfo *video_file_info, char *filename) {
+	if (video_file_info && filename) {
+		video_file_info->file_name = malloc(strlen(filename) + 1);
+		strcpy(video_file_info->file_name, filename);
 
-		video_file->frame_count = 0;
-		video_file->max_delta_time = 0;
-		video_file->min_delta_time = AV_TIME_BASE;
-		initframeinfo(&video_file->start_frame);
-		initframeinfo(&video_file->last_frame);
+		video_file_info->frame_count = 0;
+		video_file_info->max_delta_time = 0;
+		video_file_info->min_delta_time = AV_TIME_BASE;
+		initframeinfo(&video_file_info->start_frame_info);
+		initframeinfo(&video_file_info->last_frame_info);
 	}
 }
 
@@ -141,7 +142,7 @@ static char* getfileext(char* filename) {
 
 static char* changextname(char* filename, char* outfilename, const char* extname)
 {
-	char *file, *ext, tmp[1024];
+	char *file, *ext, tmp[FILENAME_LEN];
 
 	file = strrchr(filename, '/');
 	if (file) {
@@ -303,7 +304,7 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 		return NULL;
 	}
 
-	frame_info->nextfilename = NULL;
+	frame_info->next_filename = NULL;
 
 	separate_char = *buffer;
 	buffer++;
@@ -312,13 +313,13 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 		return NULL;
 	}
 
-	memcpy(&frame_info->frameid, buffer, sizeof(uint32_t));
+	memcpy(&frame_info->frame_id, buffer, sizeof(uint32_t));
 	buffer = buffer + sizeof(uint32_t);
 	if (need_swap) {
-		frame_info->frameid = av_bswap32(frame_info->frameid);
+		frame_info->frame_id = av_bswap32(frame_info->frame_id);
 	}
 	
-	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info->frameid);
+	av_log(NULL,AV_LOG_DEBUG,"frame id : %d",frame_info->frame_id);
 
 	memcpy(&frame_info->timestamp, buffer, sizeof(uint64_t));
 	buffer = buffer + sizeof(uint64_t);
@@ -332,8 +333,8 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 	trailer = strchr(buffer, SEPARATOR);
 	if (trailer > buffer) {
 		len = trailer - buffer;
-		frame_info->nextfilename = calloc(sizeof(char), len + 1);
-		strncpy(frame_info->nextfilename, buffer, trailer - buffer);
+		frame_info->next_filename = calloc(sizeof(char), len + 1);
+		strncpy(frame_info->next_filename, buffer, trailer - buffer);
 	}
 	else {
 		if ((trailer != buffer) || (separate_char != SEPARATOR)) 
@@ -348,47 +349,47 @@ static struct FrameInfo *get_frameinfo(uint8_t *buffer, FrameInfo *frame_info, c
 	return frame_info;
 }
 
-static int setTimeStamp(VideoFileInfo **video_files, int video_index, AVPacket *pkt, uint8_t *buffer, int8_t need_swap)
+static int setTimeStamp(VideoFileInfo **video_file_infos, int video_index, AVPacket *pkt, uint8_t *buffer, int8_t need_swap)
 {
 	FrameInfo frame_info;
-	VideoFileInfo *video_file = video_files[video_index];
+	VideoFileInfo *video_file_info = video_file_infos[video_index];
 	
 	if (get_frameinfo(buffer, &frame_info, need_swap) == NULL) 
 		return -1;
 
 	//Write PTS
 	//Parameters
-	if ((video_file->frame_count == 0) && (video_file->last_frame.timestamp == 0)) {
+	if ((video_file_info->frame_count == 0) && (video_file_info->last_frame_info.timestamp == 0)) {
 		if (video_index == 0) {
 			pkt->pts = 0;
 			pkt->dts = pkt->pts;
 			pkt->duration = 0;
 		}
 		else {
-			pkt->pts = frame_info.timestamp - video_files[0]->start_frame.timestamp;
+			pkt->pts = frame_info.timestamp - video_file_infos[0]->start_frame_info.timestamp;
 			pkt->dts = pkt->pts;
-			pkt->duration = frame_info.timestamp - video_files[video_index -1]->last_frame.timestamp;
+			pkt->duration = frame_info.timestamp - video_file_infos[video_index -1]->last_frame_info.timestamp;
 		}
-		video_file->start_frame.frameid = frame_info.frameid;
-		video_file->start_frame.timestamp = frame_info.timestamp;
+		video_file_info->start_frame_info.frame_id = frame_info.frame_id;
+		video_file_info->start_frame_info.timestamp = frame_info.timestamp;
 	}
 	else {
-		pkt->pts = frame_info.timestamp - video_files[0]->start_frame.timestamp;
+		pkt->pts = frame_info.timestamp - video_file_infos[0]->start_frame_info.timestamp;
 		pkt->dts = pkt->pts;
-		pkt->duration = frame_info.timestamp - video_file->last_frame.timestamp;
+		pkt->duration = frame_info.timestamp - video_file_info->last_frame_info.timestamp;
 	}
-	video_file->last_frame.frameid = frame_info.frameid;
-	video_file->last_frame.timestamp = frame_info.timestamp;
+	video_file_info->last_frame_info.frame_id = frame_info.frame_id;
+	video_file_info->last_frame_info.timestamp = frame_info.timestamp;
 
-	if (frame_info.nextfilename) {
-		video_file->last_frame.nextfilename = calloc(sizeof(char), strlen(frame_info.nextfilename) + 1);
-		strcpy(video_file->last_frame.nextfilename, frame_info.nextfilename);
-		free(frame_info.nextfilename);
+	if (frame_info.next_filename) {
+		video_file_info->last_frame_info.next_filename = calloc(sizeof(char), strlen(frame_info.next_filename) + 1);
+		strcpy(video_file_info->last_frame_info.next_filename, frame_info.next_filename);
+		free(frame_info.next_filename);
 	}
 	pkt->pos = -1;
 	pkt->time_base = (AVRational){1, AV_TIME_BASE};
 
-	updatedeltatime(video_file, pkt->duration);
+	updatedeltatime(video_file_info, pkt->duration);
 
 	return 0;
 }
@@ -411,10 +412,10 @@ static void close_index(FILE *file)
 
 static int transform(VideoFile *videofile, VideoFile *next_videofile)
 {
-	AVFormatContext *ifmt_ctx = NULL;
-	AVFormatContext *ofmt_ctx = NULL;
+	AVFormatContext *in_fmt_ctx = NULL;
+	AVFormatContext *out_fmt_ctx = NULL;
 	AVPacket pkt;
-	VideoFileInfo *video_file = NULL;
+	VideoFileInfo *video_file_info = NULL;
 	char *fileext = NULL;
 	char format_time[32];
 	int ret, i;
@@ -431,19 +432,19 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 	out_filename = videofile->out_filename;
 	index_filename = videofile->index_filename;
 
-	newoutput = (videofile->ofmt_ctx == NULL);
+	newoutput = (videofile->out_fmt_ctx == NULL);
 
-	video_files = realloc(video_files, sizeof(VideoFileInfo *) * (video_index + 1));
-	if (!video_files) {
+	video_file_infos = realloc(video_file_infos, sizeof(VideoFileInfo *) * (video_index + 1));
+	if (!video_file_infos) {
 		ret = AVERROR(ENOMEM);
 		goto end;
 	}
-	if (!(video_files[video_index] = calloc(sizeof(VideoFileInfo), 1))) {
+	if (!(video_file_infos[video_index] = calloc(sizeof(VideoFileInfo), 1))) {
 		ret = AVERROR(ENOMEM);
 		goto end;
 	}
-	video_file = video_files[video_index];	
-	initvideofileinfo(video_file, in_filename);
+	video_file_info = video_file_infos[video_index];	
+	initvideofileinfo(video_file_info, in_filename);
 
 	if (fileext = getfileext(in_filename)) {
 
@@ -468,42 +469,42 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 		}
 	}
 	 
-	if ((ret = avformat_open_input(&videofile->ifmt_ctx, in_filename, 0, 0)) < 0) {
+	if ((ret = avformat_open_input(&videofile->in_fmt_ctx, in_filename, 0, 0)) < 0) {
 		printf("Could not open input file: %s.\n", in_filename); 
 		goto end;
 	}
-	ifmt_ctx = videofile->ifmt_ctx;
-	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
+	in_fmt_ctx = videofile->in_fmt_ctx;
+	if ((ret = avformat_find_stream_info(in_fmt_ctx, 0)) < 0) {
 		printf("Failed to retrieve input stream information");
 		goto end;
 	}
  
 	if (displaymsg) {
 		printf("===========Input Information==========\n"); 
-		av_dump_format(ifmt_ctx, 0, in_filename, 0); 
+		av_dump_format(in_fmt_ctx, 0, in_filename, 0); 
 		printf("======================================\n"); 
 	}
 
 	if (newoutput) {
-		avformat_alloc_output_context2(&videofile->ofmt_ctx, NULL, NULL, out_filename);
-		if (!videofile->ofmt_ctx) {
+		avformat_alloc_output_context2(&videofile->out_fmt_ctx, NULL, NULL, out_filename);
+		if (!videofile->out_fmt_ctx) {
 			printf("Could not create output context\n"); 
 			ret = AVERROR_UNKNOWN; 
 			goto end;
 		}
 	}
-	ofmt_ctx = videofile->ofmt_ctx;
+	out_fmt_ctx = videofile->out_fmt_ctx;
 
-	stream_mapping_size = ifmt_ctx->nb_streams;
+	stream_mapping_size = in_fmt_ctx->nb_streams;
 	stream_mapping = (int *)av_calloc(stream_mapping_size, sizeof(*stream_mapping));
 	if (!stream_mapping) {
         ret = AVERROR(ENOMEM);
         goto end;
     }
   
-	for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+	for (i = 0; i < in_fmt_ctx->nb_streams; i++) {
 		AVStream *out_stream;
-		AVStream *in_stream = ifmt_ctx->streams[i];
+		AVStream *in_stream = in_fmt_ctx->streams[i];
 		AVCodecParameters *in_codecpar = in_stream->codecpar;
  
 		if (in_codecpar->codec_type != AVMEDIA_TYPE_AUDIO &&
@@ -517,7 +518,7 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 
 		if (newoutput) {
 			// add new stream to media file (ofmt_ctx)
-			out_stream = avformat_new_stream(ofmt_ctx, NULL);
+			out_stream = avformat_new_stream(out_fmt_ctx, NULL);
 			if (!out_stream) {
 				fprintf(stderr, "Failed allocating output stream\n");
 				ret = AVERROR_UNKNOWN;
@@ -534,20 +535,20 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 			out_stream->time_base = (AVRational){1, AV_TIME_BASE};
 		}
 		else {
-			out_stream = ofmt_ctx->streams[stream_mapping[i]];
+			out_stream = out_fmt_ctx->streams[stream_mapping[i]];
 		}
 	}
  
 	if (newoutput) {
-		if (!(ofmt_ctx->oformat->flags & AVFMT_NOFILE)) {
-			ret = avio_open(&ofmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
+		if (!(out_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+			ret = avio_open(&out_fmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
 			if (ret < 0) {
 				fprintf(stderr, "Could not open output file '%s'", out_filename);
 				goto end;
 			}
 		}
 
-		ret = avformat_write_header(ofmt_ctx, NULL);
+		ret = avformat_write_header(out_fmt_ctx, NULL);
 		if (ret < 0) {
 			fprintf(stderr, "Error occurred when opening output file\n");
 			goto end;
@@ -557,11 +558,11 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 	while (1) {
 		AVStream *in_stream, *out_stream;
  
-		ret = av_read_frame(ifmt_ctx, &pkt);
+		ret = av_read_frame(in_fmt_ctx, &pkt);
 		if (ret < 0)
 			break;
  
-		in_stream  = ifmt_ctx->streams[pkt.stream_index];
+		in_stream  = in_fmt_ctx->streams[pkt.stream_index];
 		if (pkt.stream_index >= stream_mapping_size ||
 			stream_mapping[pkt.stream_index] < 0) {
 				av_packet_unref(&pkt);
@@ -569,7 +570,7 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 		}
  
 		pkt.stream_index = stream_mapping[pkt.stream_index];
-		out_stream = ofmt_ctx->streams[pkt.stream_index];
+		out_stream = out_fmt_ctx->streams[pkt.stream_index];
  
 		//add timestamp
 		if(pkt.pts==AV_NOPTS_VALUE){
@@ -591,12 +592,12 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 					pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, (enum AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
 					pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
 					pkt.pos = -1;
-					video_file->frame_count++;
+					video_file_info->frame_count++;
 				}
 				else {
 					uint8_t *des_buf = getextrainfo(&pkt, trailercount);
 					if (des_buf) {
-						setTimeStamp(video_files, video_index, &pkt, des_buf, 1);
+						setTimeStamp(video_file_infos, video_index, &pkt, des_buf, 1);
 						free(des_buf);
 					}
 				}		
@@ -604,11 +605,11 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 			else {
 				if (fread(buffer, 14, 1, index_file) != 1) 
 					goto end;
-				setTimeStamp(video_files, video_index, &pkt, buffer, 1);
+				setTimeStamp(video_file_infos, video_index, &pkt, buffer, 1);
 			}
 		}
   
-		ret = av_interleaved_write_frame(ofmt_ctx, &pkt);
+		ret = av_interleaved_write_frame(out_fmt_ctx, &pkt);
 		if (ret < 0) {
 			break;
 		}
@@ -621,62 +622,62 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 		if (strlen(index_filename) && (index_file)) {
 			printf("Index: %s\n", index_filename);
 		}
-		formatdatetime(format_time, video_file->start_frame.timestamp);
+		formatdatetime(format_time, video_file_info->start_frame_info.timestamp);
 		printf("start time: %s, ", format_time);
-		formatdatetime(format_time, video_file->last_frame.timestamp);
+		formatdatetime(format_time, video_file_info->last_frame_info.timestamp);
 		printf("end time: %s\n", format_time);
-		printf("start frame %d, end frame: %d, frames: %d\n", video_file->start_frame.frameid, video_file->last_frame.frameid, video_file->frame_count);
-		printf("min duration: %d, max duration: %d\n", (video_file->min_delta_time == AV_TIME_BASE) ? 0 : video_file->min_delta_time, video_file->max_delta_time);
+		printf("start frame %d, end frame: %d, frames: %d\n", video_file_info->start_frame_info.frame_id, video_file_info->last_frame_info.frame_id, video_file_info->frame_count);
+		printf("min duration: %d, max duration: %d\n", (video_file_info->min_delta_time == AV_TIME_BASE) ? 0 : video_file_info->min_delta_time, video_file_info->max_delta_time);
 		printf("\n");
 	}
 
 	// get next_filename
 	initvideofile(next_videofile);
-	if (video_file->last_frame.nextfilename) {
-		if (strlen(video_file->last_frame.nextfilename)) {
+	if (video_file_info->last_frame_info.next_filename) {
+		if (strlen(video_file_info->last_frame_info.next_filename)) {
 			// copy to next_videofile
 			strcpy(next_videofile->in_filename, root_path);
-			strcat(next_videofile->in_filename, video_file->last_frame.nextfilename);
-			next_videofile->ifmt_ctx = NULL;
+			strcat(next_videofile->in_filename, video_file_info->last_frame_info.next_filename);
+			next_videofile->in_fmt_ctx = NULL;
 
 			strcpy(next_videofile->out_filename, videofile->out_filename);
-			next_videofile->ofmt_ctx = ofmt_ctx;
+			next_videofile->out_fmt_ctx = out_fmt_ctx;
 
-			memset(next_videofile->index_filename, 0, 1024);
+			memset(next_videofile->index_filename, 0, FILENAME_LEN);
 			next_videofile->index_file = NULL;
 		}
-		free(video_file->last_frame.nextfilename);
-		video_file->last_frame.nextfilename = NULL;
+		free(video_file_info->last_frame_info.next_filename);
+		video_file_info->last_frame_info.next_filename = NULL;
 	}
 
 	ret = 0;
 	if (strlen(next_videofile->in_filename)) {
 
-		avformat_close_input(&ifmt_ctx); 
+		avformat_close_input(&in_fmt_ctx); 
 		av_freep(&stream_mapping);
 		close_index(index_file); 
 		return ret;	
 	}
 	else {
-		av_write_trailer(ofmt_ctx);
+		av_write_trailer(out_fmt_ctx);
 		
 		if (displaymsg) {
 			printf("Output: %s\n", out_filename);
-			formattime(format_time, video_file->last_frame.timestamp - video_files[0]->start_frame.timestamp, 1, AV_ROUND_DOWN);
-			printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(video_file->last_frame.timestamp - video_files[0]->start_frame.timestamp));
+			formattime(format_time, video_file_info->last_frame_info.timestamp - video_file_infos[0]->start_frame_info.timestamp, 1, AV_ROUND_DOWN);
+			printf("total frames: %d, duration: %s, frame rate: %5.1f\n", m_frame_index, format_time, (float)m_frame_index*AV_TIME_BASE/(video_file_info->last_frame_info.timestamp - video_file_infos[0]->start_frame_info.timestamp));
 			printf("\n");
 		}
 	}
 
 end:
-	avformat_close_input(&ifmt_ctx); 
-	if (ofmt_ctx && !(ofmt_ctx->oformat->flags & AVFMT_NOFILE))
-		avio_closep(&ofmt_ctx->pb);
-	avformat_free_context(ofmt_ctx);
+	avformat_close_input(&in_fmt_ctx); 
+	if (out_fmt_ctx && !(out_fmt_ctx->oformat->flags & AVFMT_NOFILE))
+		avio_closep(&out_fmt_ctx->pb);
+	avformat_free_context(out_fmt_ctx);
  
 	av_freep(&stream_mapping);
 	close_index(index_file); 
-	free_video_files(video_files, video_index + 1);
+	free_video_files(video_file_infos, video_index + 1);
 	return ret;
 }
 
@@ -700,7 +701,7 @@ int main(int argc, char **argv)
 
 	initvideofile(&videofile);
 	initvideofile(&next_videofile);
-	memset(root_path, 0, 1024);
+	memset(root_path, 0, FILENAME_LEN);
 
 	prgname = getfilename(argv[0]);
 	for (;;) {
