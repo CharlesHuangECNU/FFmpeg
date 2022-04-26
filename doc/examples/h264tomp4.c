@@ -593,7 +593,7 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 				else {
 					uint8_t *des_buf = getextrainfo(&pkt, trailercount);
 					if (des_buf) {
-						setTimeStamp(video_file, video_index, &pkt, des_buf, 1);
+						setTimeStamp(video_files, video_index, &pkt, des_buf, 1);
 						free(des_buf);
 					}
 				}		
@@ -601,7 +601,7 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 			else {
 				if (fread(buffer, 14, 1, index_file) != 1) 
 					goto end;
-				setTimeStamp(video_file, video_index, &pkt, buffer, 1);
+				setTimeStamp(video_files, video_index, &pkt, buffer, 1);
 			}
 		}
   
