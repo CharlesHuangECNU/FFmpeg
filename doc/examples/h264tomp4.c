@@ -331,18 +331,25 @@ static struct FrameInfo *get_frame_info(uint8_t *buffer, FrameInfo *frame_info, 
 
 	separate_char = *buffer;
 	trailer = strchr(buffer, SEPARATOR);
-	if (trailer > buffer) {
-		len = trailer - buffer;
-		frame_info->next_filename = calloc(sizeof(char), len + 1);
-		strncpy(frame_info->next_filename, buffer, trailer - buffer);
-	}
-	else {
-		if ((trailer != buffer) || (separate_char != SEPARATOR)) 
-		{
-			av_log(NULL,AV_LOG_ERROR,"separate char error.");
-			return NULL;
+	if (trailer) {
+		if (trailer > buffer) {
+			len = trailer - buffer;
+			frame_info->next_filename = calloc(sizeof(char), len + 1);
+			strncpy(frame_info->next_filename, buffer, trailer - buffer);
 		}
-		len = 0;
+		else {
+			if ((trailer != buffer) || (separate_char != SEPARATOR)) 
+			{
+				av_log(NULL,AV_LOG_ERROR,"separate char error.");
+				return NULL;
+			}
+			len = 0;
+		}
+	}
+	else if (len = strlen(buffer)) {
+		frame_info->next_filename = calloc(sizeof(char), len + 1);
+		strcpy(frame_info->next_filename, buffer);
+		len++;
 	}
 	
 	buffer = buffer + len + 1;
