@@ -634,7 +634,7 @@ static int transform(VideoFile *videofile, VideoFile *next_videofile)
 		format_datetime(formated_time, video_file_info->last_frame_info.timestamp);
 		printf("end time: %s\n", formated_time);
 		printf("start frame %d, end frame: %d, frames: %d\n", video_file_info->start_frame_info.frame_id, video_file_info->last_frame_info.frame_id, video_file_info->frame_count);
-		printf("min duration: %d, max duration: %d\n", (video_file_info->min_delta_time == AV_TIME_BASE) ? 0 : video_file_info->min_delta_time, video_file_info->max_delta_time);
+		printf("min frame rate: %6.2f, max frame rate: %6.2f\n", (video_file_info->min_delta_time == AV_TIME_BASE) ? 0 : 1000000.0 / video_file_info->max_delta_time, 1000000.0 / video_file_info->min_delta_time);
 		printf("\n");
 	}
 
